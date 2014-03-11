@@ -24,6 +24,8 @@ def lldbcommands():
     FBPrintUpwardResponderChain(),
     FBPrintOnscreenTableView(),
     FBPrintOnscreenTableViewCells(),
+    FBPrintOnscreenCollectionView(),
+    FBPrintOnscreenCollectionViewCells(),
     FBPrintInternals(),
     FBPrintInstanceVariable(),
   ]
@@ -159,6 +161,35 @@ def tableViewInHierarchy():
 
   return searchView
 
+def collectionViewInHierarchy():
+  viewDescription = fb.evaluateExpressionValue('(id)[(id)[UIWindow keyWindow] recursiveDescription]').GetObjectDescription()
+
+  searchView = None
+
+  # Try to find an instance of
+  classPattern = re.compile(r'UICollectionView: (0x[0-9a-fA-F]+);')
+  for match in re.finditer(classPattern, viewDescription):
+    searchView = match.group(1)
+    break
+
+  # Try to find a direct subclass
+  if not searchView:
+    subclassPattern = re.compile(r'(0x[0-9a-fA-F]+); baseClass =UICollectionView;')
+    for match in re.finditer(subclassPattern, viewDescription):
+      searchView = match.group(1)
+      break
+
+  # SLOW: check every pointer in town
+  if not searchView:
+    pattern = re.compile(r'(0x[0-9a-fA-F]+)[;>]')
+    for (view) in re.findall(pattern, viewDescription):
+      if fb.evaluateBooleanExpression('[' + view + ' isKindOfClass:(id)[UICollectionView class]]'):
+        searchView = view
+        break
+
+  return searchView
+
+
 class FBPrintOnscreenTableView(fb.FBCommand):
   def name(self):
     return 'ptv'
@@ -187,6 +218,33 @@ class FBPrintOnscreenTableViewCells(fb.FBCommand):
     tableView = tableViewInHierarchy()
     print fb.evaluateExpressionValue('(id)[(id)' + tableView + ' visibleCells]').GetObjectDescription()
 
+class FBPrintOnscreenCollectionView(fb.FBCommand):
+  def name(self):
+    return 'pcv'
+
+  def description(self):
+    return 'Print the highest collection view in the hierarchy.'
+
+  def run(self, arguments, options):
+    collectionView = collectionViewInHierarchy()
+    if collectionView:
+      viewValue = fb.evaluateExpressionValue(collectionView)
+      print viewValue.GetObjectDescription()
+      cmd = 'echo %s | tr -d "\n" | pbcopy' % collectionView
+      os.system(cmd)
+    else:
+      print 'Sorry, chump. I couldn\'t find a collection-view. :\'('
+
+class FBPrintOnscreenCollectionViewCells(fb.FBCommand):
+  def name(self):
+    return 'pcvcells'
+
+  def description(self):
+    return 'Print the visible cells of the highest collection view in the hierarchy.'
+
+  def run(self, arguments, options):
+    collectionView = collectionViewInHierarchy()
+    print fb.evaluateExpressionValue('(id)[(id)' + collectionView + ' visibleCells]').GetObjectDescription()
 
 class FBPrintInternals(fb.FBCommand):
   def name(self):
